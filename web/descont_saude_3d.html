@@ -1,0 +1,665 @@
+<title>Descont'Saúde Térreo 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&display=swap">
+<style>
+/* Layout: 3D em tela cheia; HUD flutuante em vidro escuro (mesmo visual nos dois temas, cena 3D é a protagonista) */
+:root {
+  --hud-bg: rgba(10, 30, 60, 0.72);
+  --hud-fg: #F2F6FA;
+  --hud-muted: #A9BCD0;
+  --azul: #0B3F86;
+  --lima: #8CC63F;
+  --ciano: #22A8E6;
+  --font: "Lexend", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; overflow: hidden; background: #DDE4EA; color: var(--hud-fg); font-family: var(--font); }
+#app { position: fixed; inset: 0; }
+canvas#cena { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+.hud { position: absolute; background: var(--hud-bg); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 12px; }
+#topo {
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px; flex-wrap: wrap;
+}
+#topo h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
+#topo h1 b { color: var(--lima); font-weight: 700; }
+#zona { font-size: 13px; color: var(--hud-muted); flex: 1; min-width: 0; text-wrap: balance; }
+#zona strong { color: var(--hud-fg); font-weight: 600; }
+.chk { display: flex; gap: 6px; }
+button {
+  font: 600 12px/1 var(--font); color: var(--hud-fg); background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; padding: 8px 12px; cursor: pointer; white-space: nowrap;
+}
+button:hover { background: rgba(255,255,255,0.22); }
+button:focus-visible { outline: 2px solid var(--lima); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--lima); color: #12301A; border-color: var(--lima); }
+#vistas {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  padding: 8px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+}
+#vistas::-webkit-scrollbar { display: none; }
+#ajuda {
+  top: calc(env(safe-area-inset-top, 0px) + 66px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--hud-muted); max-width: 290px;
+}
+#ajuda kbd { font-family: var(--font); color: var(--hud-fg); background: rgba(255,255,255,0.14); border-radius: 4px; padding: 0 5px; }
+#ajuda .t { display: none; }
+body.toque #ajuda .t { display: block; }
+body.toque #ajuda .d { display: none; }
+#joy { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.6); background: rgba(11,63,134,0.25); pointer-events: none; }
+#joy i { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  border-radius: 50%; background: rgba(140,198,63,0.9); }
+[hidden] { display: none !important; }
+#carregando { position: absolute; inset: 0; display: grid; place-items: center; color: var(--azul); font: 600 16px var(--font); }
+@media (max-width: 520px) {
+  #topo h1 { font-size: 14px; flex: 1; }
+  #zona { order: 3; flex-basis: 100%; font-size: 12px; }
+  #ajuda { max-width: 240px; top: calc(env(safe-area-inset-top, 0px) + 92px); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div id="app">
+  <div id="carregando">Montando a maquete…</div>
+  <canvas id="cena" tabindex="0" aria-label="Maquete 3D navegável da clínica Descont'Saúde"></canvas>
+  <div id="topo" class="hud">
+    <h1>Descont'<b>Saúde</b> · Térreo</h1>
+    <div id="zona"><strong>Entrada</strong></div>
+    <div class="chk">
+      <button id="btnForro" type="button" aria-pressed="true">Forro</button>
+      <button id="btnAjuda" type="button" aria-pressed="true">Ajuda</button>
+    </div>
+  </div>
+  <div id="ajuda" class="hud">
+    <div class="d"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> ou setas para andar · <kbd>Shift</kbd> corre<br>Arraste com o mouse para olhar em volta.</div>
+    <div class="t">Polegar esquerdo: arraste para andar.<br>Polegar direito: arraste para olhar.</div>
+    <div>Paredes e móveis bloqueiam a passagem. Olhos a 1,60 m, lente 24 mm.</div>
+  </div>
+  <div id="vistas" class="hud" role="toolbar" aria-label="Pontos de vista"></div>
+  <div id="joy" hidden><i></i></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+"use strict";
+// ======================================================================
+// Coordenadas = as mesmas do script do Blender (metros):
+//   X = largura (0 = parede esquerda), Y = profundidade (0 = vitrine), Z = altura.
+// Conversão para o Three.js (Y para cima): (x, y, z) -> (x, z, -y)
+// ======================================================================
+const PE = 3.80, LAJE = 3.96, LARG = 7.85, PROF = 8.00, EI = 0.10, EE = 0.20;
+const SX0 = 1.30, SX1 = 6.35, SY0 = 8.00, SY1 = 12.00, DX0 = 3.74, DX1 = 3.85;
+const EY0 = 1.65, EL = 1.20, ESP = 0.18, PD = 0.28, N1 = 11, N2 = 10;
+const PY0 = EY0 + N1 * PD, PY1 = PY0 + EL, PZ = (N1 + 1) * ESP, L2X0 = EL, L2X1 = L2X0 + N2 * PD;
+const LX0 = 6.25, LY0 = 5.00, LY1 = 7.10, BARRADO = 1.10;
+
+const V = (x, y, z) => new THREE.Vector3(x, z, -y);
+const cena = new THREE.Scene();
+cena.background = new THREE.Color(0xC9D6E2);
+cena.fog = new THREE.Fog(0xC9D6E2, 25, 60);
+const solidos = [];       // AABBs 2D [x0, y0, x1, y1] para colisão
+const forro = new THREE.Group(); cena.add(forro);
+
+// ---------------- Texturas procedurais (canvas) ----------------
+function tex(w, h, desenho, rx = 1, ry = 1) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  desenho(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 4;
+  return t;
+}
+const rnd = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+const texPiso = tex(512, 256, (g, w, h) => {      // 2.44 x 0.74 m: réguas 1.22 x 0.185
+  for (let r = 0; r < 4; r++) {
+    const off = (r % 2) * 0.5;
+    for (let k = -1; k < 3; k++) {
+      const x0 = (k + off) * w / 2, v = 196 + Math.floor(rnd() * 14);
+      g.fillStyle = `rgb(${v},${v + 3},${v + 5})`; g.fillRect(x0, r * h / 4, w / 2, h / 4);
+      for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(150,155,160,${rnd() * 0.08})`; g.fillRect(x0 + rnd() * w / 2, r * h / 4 + rnd() * h / 4, 40 + rnd() * 80, 1); }
+      g.fillStyle = "#9EA3A7"; g.fillRect(x0, r * h / 4, 2, h / 4);
+    }
+    g.fillStyle = "#9EA3A7"; g.fillRect(0, r * h / 4, w, 2);
+  }
+}, (LARG + 2 * EE) / 2.44, (SY1 + 0.35) / 0.74);
+const texMarmore = tex(512, 512, (g, w, h) => {
+  g.fillStyle = "#F4F4F1"; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 14; i++) {
+    g.strokeStyle = `rgba(110,118,125,${0.25 + rnd() * 0.5})`; g.lineWidth = 0.6 + rnd() * 2.2;
+    g.beginPath(); let x = rnd() * w, y = 0; g.moveTo(x, y);
+    while (y < h) { x += (rnd() - 0.5) * 70; y += 20 + rnd() * 40; g.lineTo(x, y); }
+    g.stroke();
+  }
+});
+const texMadeira = (claro, escuro) => tex(256, 256, (g, w, h) => {
+  g.fillStyle = claro; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 2) { g.fillStyle = escuro; g.globalAlpha = 0.08 + 0.25 * Math.abs(Math.sin(y * 0.11 + Math.sin(y * 0.031) * 3)); g.fillRect(0, y, w, 2); }
+  g.globalAlpha = 1;
+});
+
+// ---------------- Materiais (cores institucionais) ----------------
+const std = (color, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.6, metalness: 0 }, o));
+const M = {
+  piso: std(0xffffff, { map: texPiso, roughness: 0.45 }),
+  parede: std(0xF2F1EC, { roughness: 0.92 }),
+  barrado: std(0xA9B4BC, { roughness: 0.9 }),
+  parede_ext: std(0xC3C7C8, { roughness: 0.85 }),
+  forro: std(0xFAFAF8, { roughness: 0.95 }),
+  calcada: std(0xA7A39B, { roughness: 0.95 }),
+  tatil: std(0xE3B21B, { roughness: 0.8 }),
+  asfalto: std(0x3A3B3C, { roughness: 0.95 }),
+  vidro: new THREE.MeshPhysicalMaterial({ color: 0xDDEFF3, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }),
+  jateado: new THREE.MeshStandardMaterial({ color: 0xF4F8FA, roughness: 0.5, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide }),
+  fume: std(0x141618, { roughness: 0.1 }),
+  madeira: std(0xffffff, { map: texMadeira("#C9A06C", "#8E643A"), roughness: 0.5 }),
+  madeira_esc: std(0xffffff, { map: texMadeira("#6B4029", "#3A2012"), roughness: 0.45 }),
+  marmore: std(0xffffff, { map: texMarmore, roughness: 0.2 }),
+  aluminio: std(0xC9CCCF, { roughness: 0.3, metalness: 0.8 }),
+  aco: std(0xF0F0EE, { roughness: 0.35, metalness: 0.2 }),
+  laca: std(0xF5F5F3, { roughness: 0.3 }),
+  preto: std(0x1A1A1A, { roughness: 0.6 }),
+  louca: std(0xFFFFFF, { roughness: 0.15 }),
+  azul: std(0x0B3F86), ciano: std(0x22A8E6), turquesa: std(0x16BFB0), verde: std(0x8CC63F),
+  grafite: std(0x1F2B28, { roughness: 0.5 }),
+  est_azul: std(0x16376B, { roughness: 0.85 }), est_turq: std(0x2A9D93, { roughness: 0.85 }),
+  est_verde: std(0x7DB33A, { roughness: 0.9 }), maca: std(0x1D5F86, { roughness: 0.5 }),
+  led: new THREE.MeshBasicMaterial({ color: 0xFFF6E8 }),
+  tela: new THREE.MeshBasicMaterial({ color: 0x1B5FA8 }),
+  folha: std(0x3E7D3A, { roughness: 0.7 }), vaso: std(0xE9E4DA),
+};
+
+// ---------------- Primitivas ----------------
+function B(c, s, m, pai = cena) {           // caixa por centro/tamanho (coord. Blender locais)
+  const me = new THREE.Mesh(new THREE.BoxGeometry(s[0], s[2], s[1]), m);
+  me.position.copy(V(c[0], c[1], c[2])); pai.add(me); return me;
+}
+function BX(mn, mx, m, pai = cena, solido = false) {
+  if (solido) solidos.push([mn[0], mn[1], mx[0], mx[1]]);
+  return B([(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2],
+           [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]], m, pai);
+}
+function CY(c, r, h, m, pai = cena, eixo = "Z") {
+  const me = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 24), m);
+  if (eixo === "X") me.rotation.z = Math.PI / 2;
+  if (eixo === "Y") me.rotation.x = Math.PI / 2;
+  me.position.copy(V(c[0], c[1], c[2])); pai.add(me); return me;
+}
+function SP(c, r, m, pai = cena) {
+  const me = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 12), m);
+  me.position.copy(V(c[0], c[1], c[2])); pai.add(me); return me;
+}
+const OLHA = { "+Y": 0, "-Y": Math.PI, "+X": -Math.PI / 2, "-X": Math.PI / 2 };
+function grupo(x, y, rot = 0, z = 0) {
+  const g = new THREE.Group(); g.position.copy(V(x, y, z)); g.rotation.y = rot; cena.add(g); return g;
+}
+function solido(obj, folga = 0) {           // registra a projeção do objeto no piso
+  obj.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(obj);
+  solidos.push([bb.min.x - folga, -bb.max.z - folga, bb.max.x + folga, -bb.min.z + folga]);
+}
+function viga(p0, p1, larg, alt, m) {
+  const a = V(...p0), b = V(...p1), d = b.clone().sub(a);
+  const me = new THREE.Mesh(new THREE.BoxGeometry(d.length(), alt, larg), m);
+  me.position.copy(a).add(b).multiplyScalar(0.5);
+  me.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), d.normalize());
+  cena.add(me); return me;
+}
+// Parede com vãos; divide em barrado (até 1.10) + pintura clara
+function parede(eixo, ini, fim, pos, esp, alt, aberturas = [], comBarrado = true) {
+  const trechos = []; let cur = ini;
+  aberturas.sort((p, q) => p[0] - q[0]).forEach(([a0, a1, h]) => {
+    if (a0 > cur) trechos.push([cur, a0, 0, alt]);
+    if (h < alt) trechos.push([a0, a1, h, alt]);
+    cur = a1;
+  });
+  if (cur < fim) trechos.push([cur, fim, 0, alt]);
+  for (const [s0, s1, z0, z1] of trechos) {
+    const faixa = (za, zb, m) => {
+      if (zb <= za) return;
+      if (eixo === "X") BX([s0, pos - esp / 2, za], [s1, pos + esp / 2, zb], m);
+      else BX([pos - esp / 2, s0, za], [pos + esp / 2, s1, zb], m);
+    };
+    if (comBarrado) { faixa(z0, Math.min(z1, BARRADO), M.barrado); faixa(Math.max(z0, BARRADO), z1, M.parede); }
+    else faixa(z0, z1, M.parede_ext);
+    if (z0 === 0) solidos.push(eixo === "X" ? [s0, pos - esp / 2, s1, pos + esp / 2] : [pos - esp / 2, s0, pos + esp / 2, s1]);
+  }
+}
+// Texto em placa (canvas). partes = [[texto, cor], ...]
+function placa(partes, larg, alt, c, rot, fundo = null, peso = 700) {
+  const cv = document.createElement("canvas"); cv.width = 1024; cv.height = Math.round(1024 * alt / larg);
+  const g = cv.getContext("2d");
+  if (fundo) { g.fillStyle = fundo; g.fillRect(0, 0, cv.width, cv.height); }
+  let fs = cv.height * 0.72; g.font = `${peso} ${fs}px Lexend, sans-serif`;
+  const total = () => partes.reduce((s, p) => s + g.measureText(p[0]).width, 0);
+  while (total() > cv.width * 0.96) { fs *= 0.95; g.font = `${peso} ${fs}px Lexend, sans-serif`; }
+  let x = (cv.width - total()) / 2; g.textBaseline = "middle";
+  for (const [t, cor] of partes) { g.fillStyle = cor; g.fillText(t, x, cv.height / 2); x += g.measureText(t).width; }
+  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4;
+  const me = new THREE.Mesh(new THREE.PlaneGeometry(larg, alt), new THREE.MeshBasicMaterial({ map: t, transparent: !fundo }));
+  me.position.copy(V(...c)); me.rotation.y = rot; cena.add(me); return me;
+}
+// Símbolo da marca simplificado: 4 pétalas + 3 pessoas
+function logo(c, esc, normal) {
+  const d = 0.09 * esc, r = 0.075 * esc, eixo = normal === "X" ? "X" : "Y";
+  const pos = (h, v) => normal === "X" ? [c[0], c[1] + h, c[2] + v] : [c[0] + h, c[1], c[2] + v];
+  [[0, 1, M.turquesa], [1, 0, M.ciano], [0, -1, M.azul], [-1, 0, M.verde]]
+    .forEach(([h, v, m]) => CY(pos(h * d, v * d), r, 0.02, m, cena, eixo));
+  [-1.2, 0, 1.2].forEach(h => CY(pos(h * d, -2 * d - (h === 0 ? 0.3 * d : 0)), 0.028 * esc, 0.02, M.azul, cena, eixo));
+}
+
+// ======================================================================
+// 1. PAREDES E DIVISÓRIAS
+// ======================================================================
+parede("Y", -0.25, PROF + 0.10, -EE / 2, EE, LAJE);
+parede("Y", -0.25, PROF + 0.10, LARG + EE / 2, EE, LAJE);
+parede("X", 0, SX0 - EI, PROF + EI / 2, EI, PE);
+parede("X", SX1 + EI, LARG, PROF + EI / 2, EI, PE, [[6.75, 7.65, 2.10]]);
+BX([6.75, PROF + 0.02, 0], [7.65, PROF + 0.08, 2.10], M.fume, cena, true);       // porta garagem
+parede("Y", SY0, SY1 + EI, SX0 - EI / 2, EI, PE);
+parede("Y", SY0, SY1 + EI, SX1 + EI / 2, EI, PE);
+parede("X", SX0 - EI, SX1 + EI, SY1 + EI / 2, EI, PE);
+parede("Y", SY0 + 0.02, SY1, (DX0 + DX1) / 2, DX1 - DX0, PE);                    // drywall acústico
+parede("X", LX0, LARG, LY0 + EI / 2, EI, PE);                                     // lavabo
+parede("X", LX0, LARG, LY1 - EI / 2, EI, PE);
+parede("Y", LY0 + EI, LY1 - EI, LX0 + EI / 2, EI, PE, [[5.15, 5.85, 2.10]]);
+BX([LX0 + EI + 0.01, 5.13, 0], [LX0 + EI + 0.71, 5.17, 2.10], M.madeira);
+
+// ======================================================================
+// 2. VIDROS DOS CONSULTÓRIOS (bandeira incolor + jateado para privacidade)
+// ======================================================================
+{
+  const y = SY0, al = M.aluminio;
+  BX([SX0, y - 0.03, 2.30], [SX1, y + 0.03, 2.35], al);
+  BX([SX0, y - 0.03, PE - 0.03], [SX1, y + 0.03, PE], al);
+  BX([2.45, y - 0.03, 0], [2.49, y + 0.03, 2.30], al, cena, true);
+  BX([DX0, y - 0.03, 0], [DX1, y + 0.03, PE], al, cena, true);
+  BX([4.81, y - 0.03, 0], [4.85, y + 0.03, 2.30], al, cena, true);
+  BX([SX1 - 0.04, y - 0.03, 0], [SX1, y + 0.03, 2.30], al);
+  BX([SX0, y - 0.01, 2.35], [SX1, y + 0.01, PE - 0.03], M.vidro);
+  BX([2.49, y - 0.01, 0.04], [DX0, y + 0.01, 2.30], M.jateado, cena, true);
+  BX([4.85, y - 0.01, 0.04], [SX1 - 0.04, y + 0.01, 2.30], M.jateado, cena, true);
+  [[SX0 + 0.04, 1.10], [DX1 + 0.04, 0.90]].forEach(([x0, l]) => {      // portas abertas 90°
+    BX([x0, y + 0.03, 0.01], [x0 + 0.04, y + 0.03 + l, 2.29], M.jateado, cena, true);
+    BX([x0 + 0.04, y + l - 0.10, 0.85], [x0 + 0.07, y + l - 0.07, 1.25], al);
+  });
+  placa([["CONSULTÓRIO 01", "#0B3F86"]], 1.6, 0.2, [(SX0 + DX0) / 2, y - 0.03, 2.58], 0);
+  placa([["CONSULTÓRIO 02", "#0B3F86"]], 1.6, 0.2, [(DX1 + SX1) / 2, y - 0.03, 2.58], 0);
+}
+
+// ======================================================================
+// 3. PISO, CALÇADA E FORRO (com vão da escada)
+// ======================================================================
+BX([-EE, -0.25, -0.05], [LARG + EE, SY1 + EI, 0], M.piso);
+BX([-3, -4, -0.12], [LARG + 3, -0.25, 0], M.calcada);
+BX([-3, -1.60, 0], [LARG + 3, -1.35, 0.004], M.tatil);
+BX([-3, -12, -0.30], [LARG + 3, -4, -0.15], M.asfalto);
+const FY0 = 4.10, FY1 = PY1 + 0.07;
+[[[0, 0, PE], [LARG, FY0, LAJE]], [[L2X1, FY0, PE], [LARG, FY1, LAJE]],
+ [[0, FY1, PE], [LARG, PROF, LAJE]], [[SX0, SY0, PE], [SX1, SY1, LAJE]]]
+  .forEach(([a, b]) => BX(a, b, M.forro, forro));
+
+// ======================================================================
+// 4. FACHADA (vitrine, porta dupla aberta e letreiro em ACM)
+// ======================================================================
+BX([-EE, -0.25, 0], [0.30, 0, LAJE], M.parede_ext, cena, true);
+BX([LARG - 0.30, -0.25, 0], [LARG + EE, 0, LAJE], M.parede_ext, cena, true);
+BX([0.30, -0.20, 2.90], [LARG - 0.30, 0, LAJE], M.parede);
+BX([-EE, -0.25, LAJE], [LARG + EE, 0, 4.80], M.parede_ext);
+BX([-EE, -0.32, 2.95], [LARG + EE, -0.25, 4.75], M.grafite);
+BX([1.0, -0.335, 3.24], [LARG - 0.2, -0.32, 3.27], M.verde);
+placa([["Descont'", "#FFFFFF"], ["Saúde", "#8CC63F"]], 5.6, 0.9, [4.45, -0.34, 4.00], 0);
+placa([["CONSULTAS  ·  EXAMES  ·  ODONTOLOGIA", "#FFFFFF"]], 5.2, 0.24, [4.45, -0.34, 3.45], 0, null, 600);
+logo([0.75, -0.345, 3.95], 2.6, "Y");
+{
+  const al = M.aluminio;
+  BX([0.30, -0.05, 0], [3.15, 0.01, 0.04], al); BX([4.75, -0.05, 0], [LARG - 0.30, 0.01, 0.04], al);
+  BX([0.30, -0.05, 2.86], [LARG - 0.30, 0.01, 2.90], al); BX([3.15, -0.05, 2.30], [4.75, 0.01, 2.34], al);
+  [0.30, 1.72, 3.13, 4.73, 6.13, LARG - 0.35].forEach(x => BX([x, -0.05, 0], [x + 0.05, 0.01, 2.90], al));
+  BX([0.30, -0.03, 0.04], [3.15, -0.01, 2.86], M.vidro, cena, true);
+  BX([4.75, -0.03, 0.04], [LARG - 0.30, -0.01, 2.86], M.vidro, cena, true);
+  BX([3.15, -0.03, 2.34], [4.75, -0.01, 2.86], M.vidro);
+  [3.18, 4.69].forEach(x0 => {
+    BX([x0, -0.83, 0.02], [x0 + 0.03, -0.05, 2.28], M.vidro, cena, true);
+    BX([x0 - 0.03, -0.78, 0.80], [x0 + 0.06, -0.75, 1.70], al);
+  });
+}
+
+// ======================================================================
+// 5. ESCADA EM "L" (22 degraus, madeira escura + estrutura branca)
+// ======================================================================
+for (let i = 1; i <= N1; i++) {
+  const y0 = EY0 + (i - 1) * PD, z = i * ESP;
+  BX([0.02, y0, z - 0.04], [EL - 0.02, y0 + PD, z], M.madeira_esc);
+}
+BX([0.02, PY0, PZ - 0.10], [EL, PY1, PZ], M.madeira_esc);
+for (let k = 0; k < N2; k++) {
+  const x0 = L2X0 + k * PD, z = (N1 + 2 + k) * ESP;
+  BX([x0, PY0 + 0.02, z - 0.04], [x0 + PD, PY1 - 0.02, z], M.madeira_esc);
+}
+[0.05, EL - 0.05].forEach(x => viga([x, EY0, 0], [x, PY0, PZ - 0.10], 0.06, 0.22, M.aco));
+[PY0 + 0.05, PY1 - 0.05].forEach(y => viga([L2X0, y, PZ - 0.10], [L2X1, y, LAJE - 0.10], 0.06, 0.22, M.aco));
+BX([EL - 0.10, PY1 - 0.10, 0], [EL, PY1, PZ - 0.10], M.aco, cena, true);
+[0.35, 0.65, 0.95].forEach(h => {
+  viga([EL, EY0, ESP + h], [EL, PY0, PZ + h], 0.03, 0.03, M.aco);
+  viga([0, PY1, PZ + h], [EL, PY1, PZ + h], 0.03, 0.03, M.aco);
+  [PY0, PY1].forEach(y => viga([EL, y, PZ + h], [L2X1, y, LAJE + h], 0.03, 0.03, M.aco));
+});
+solidos.push([0, EY0, EL + 0.03, PY1]);           // lance 1 + patamar (não dá para passar por baixo)
+
+// ======================================================================
+// 6. MOBILIÁRIO (placeholders – pessoa sentada olha para +Y local)
+// ======================================================================
+function cadeiraFixa(x, y, olha, est) {
+  const g = grupo(x, y, OLHA[olha]), m = M.aluminio;
+  B([0, 0, 0.45], [0.46, 0.46, 0.06], est, g); B([0, -0.21, 0.76], [0.46, 0.05, 0.40], est, g);
+  for (const sx of [-0.2, 0.2]) { for (const sy of [-0.2, 0.2]) B([sx, sy, 0.21], [0.025, 0.025, 0.42], m, g); B([sx, -0.22, 0.52], [0.025, 0.025, 0.14], m, g); }
+  solido(g, 0.02); return g;
+}
+function cadeiraGiratoria(x, y, olha, est) {
+  const g = grupo(x, y, OLHA[olha]), m = M.aluminio;
+  B([0, 0, 0.48], [0.50, 0.48, 0.08], est, g); B([0, -0.25, 0.90], [0.46, 0.06, 0.55], est, g);
+  B([0, -0.25, 0.58], [0.06, 0.04, 0.20], m, g); CY([0, 0, 0.26], 0.03, 0.36, m, g);
+  B([0, 0, 0.06], [0.62, 0.05, 0.04], m, g); B([0, 0, 0.06], [0.05, 0.62, 0.04], m, g);
+  for (const sx of [-0.27, 0.27]) { B([sx, 0, 0.70], [0.05, 0.30, 0.04], M.preto, g); B([sx, -0.05, 0.61], [0.03, 0.03, 0.14], m, g); }
+  solido(g); return g;
+}
+function poltrona(x, y, olha) {
+  const g = grupo(x, y, OLHA[olha]), e = M.est_azul;
+  B([0, 0.03, 0.30], [0.78, 0.70, 0.24], e, g); B([0, -0.30, 0.62], [0.78, 0.16, 0.40], e, g);
+  B([0, -0.17, 0.57], [0.36, 0.10, 0.28], M.est_verde, g);
+  for (const sx of [-0.33, 0.33]) { B([sx, 0.03, 0.52], [0.12, 0.70, 0.20], e, g); for (const sy of [-0.28, 0.30]) B([sx, sy, 0.09], [0.04, 0.04, 0.18], M.madeira, g); }
+  solido(g); return g;
+}
+function longarina(x, y, olha, n, est) {
+  const g = grupo(x, y, OLHA[olha]), m = M.aluminio, p = 0.55, comp = n * p;
+  B([0, -0.05, 0.40], [comp, 0.06, 0.05], m, g);
+  for (let i = 0; i < n; i++) {
+    const ox = (i - (n - 1) / 2) * p;
+    B([ox, 0, 0.45], [0.48, 0.46, 0.05], est, g); B([ox, -0.22, 0.75], [0.48, 0.04, 0.36], est, g); B([ox, -0.21, 0.52], [0.04, 0.03, 0.12], m, g);
+  }
+  for (const lx of [-(comp / 2 - 0.15), comp / 2 - 0.15]) { B([lx, -0.05, 0.20], [0.05, 0.05, 0.38], m, g); B([lx, -0.05, 0.02], [0.06, 0.55, 0.04], m, g); }
+  solido(g); return g;
+}
+function mesa(x, y, olha, larg, prof) {      // 'olha' = para onde o médico/consultor olha
+  const rot = OLHA[olha] + Math.PI, g = grupo(x, y, rot);
+  B([0, 0, 0.735], [larg, prof, 0.03], M.madeira, g);
+  B([0, -prof / 2 + 0.10, 0.45], [larg - 0.06, 0.02, 0.40], M.laca, g);
+  B([larg / 2 - 0.24, 0.02, 0.33], [0.40, prof - 0.12, 0.60], M.laca, g);
+  for (const s of [-1, 1]) B([s * (larg / 2 - 0.015), 0, 0.36], [0.03, prof - 0.02, 0.72], M.laca, g);
+  solido(g); return rot;
+}
+const l2w = (x, y, r, dx, dy) => [x + dx * Math.cos(r) - dy * Math.sin(r), y + dx * Math.sin(r) + dy * Math.cos(r)];
+function monitor(x, y, rot, z = 0.75) {
+  const g = grupo(x, y, rot, z);
+  B([0, 0, 0.28], [0.55, 0.025, 0.33], M.preto, g); B([0, 0.014, 0.28], [0.52, 0.002, 0.30], M.tela, g);
+  B([0, -0.03, 0.08], [0.05, 0.03, 0.16], M.preto, g); B([0, -0.03, 0.005], [0.22, 0.18, 0.01], M.preto, g);
+}
+function notebook(x, y, rot) {
+  const g = grupo(x, y, rot);
+  B([0, 0, 0.76], [0.34, 0.24, 0.02], M.aluminio, g); B([0, -0.12, 0.88], [0.34, 0.01, 0.22], M.preto, g);
+  B([0, -0.114, 0.88], [0.31, 0.002, 0.19], M.tela, g);
+}
+function maca(x, y) {
+  const g = grupo(x, y), m = M.aco;
+  B([0, 0, 0.76], [1.85, 0.65, 0.08], M.maca, g); B([-0.72, 0, 0.86], [0.40, 0.62, 0.10], M.maca, g);
+  B([0, 0, 0.68], [1.80, 0.60, 0.06], m, g); B([0, 0, 0.18], [1.70, 0.55, 0.02], m, g);
+  for (const sx of [-0.85, 0.85]) for (const sy of [-0.27, 0.27]) B([sx, sy, 0.33], [0.04, 0.04, 0.66], m, g);
+  solido(g);
+}
+function escadinha(x, y) {
+  const g = grupo(x, y);
+  B([0, -0.075, 0.19], [0.40, 0.15, 0.03], M.preto, g); B([0, 0.075, 0.39], [0.40, 0.15, 0.03], M.preto, g);
+  for (const sx of [-0.19, 0.19]) B([sx, 0, 0.20], [0.02, 0.30, 0.40], M.aco, g);
+  solido(g);
+}
+function mocho(x, y) {
+  const g = grupo(x, y), m = M.aluminio;
+  CY([0, 0, 0.58], 0.19, 0.07, M.maca, g); CY([0, 0, 0.30], 0.025, 0.50, m, g);
+  B([0, 0, 0.04], [0.55, 0.05, 0.04], m, g); B([0, 0, 0.04], [0.05, 0.55, 0.04], m, g);
+  solido(g);
+}
+function lavatorio(x, y, olha) {
+  const g = grupo(x, y, OLHA[olha]);
+  B([0, 0, 0.40], [0.50, 0.45, 0.80], M.laca, g); B([0, 0, 0.83], [0.52, 0.47, 0.06], M.louca, g);
+  B([0, -0.17, 0.93], [0.03, 0.03, 0.14], M.aluminio, g); B([0, -0.11, 0.99], [0.03, 0.12, 0.02], M.aluminio, g);
+  solido(g);
+}
+function planta(x, y) {
+  const g = grupo(x, y);
+  CY([0, 0, 0.25], 0.20, 0.50, M.vaso, g); SP([0, 0, 0.85], 0.33, M.folha, g);
+  SP([0.10, 0.08, 1.10], 0.24, M.folha, g); SP([-0.08, -0.06, 1.05], 0.26, M.folha, g);
+  solido(g);
+}
+
+// ---- Recepção (balcão ergonômico NBR 9050) + painel institucional ----
+{
+  const mm = M.marmore, X0 = 6.20, XW = 7.10, Y0 = 1.40, YA = 2.30, Y1 = 3.80;
+  BX([6.10, Y0, 0.76], [XW, YA, 0.80], mm); BX([6.42, Y0 + 0.04, 0], [6.45, YA, 0.76], mm);
+  BX([6.10, Y0, 0], [XW, Y0 + 0.04, 0.76], mm);
+  BX([X0, YA, 0], [6.45, Y1, 1.05], mm); BX([6.15, YA - 0.02, 1.05], [6.55, Y1, 1.10], M.madeira);
+  BX([6.45, YA, 0.72], [XW, Y1, 0.75], M.madeira); BX([X0, Y1 - 0.04, 0], [XW, Y1, 1.05], mm);
+  BX([6.55, 3.15, 0], [7.00, 3.70, 0.60], M.laca); BX([X0 - 0.015, YA, 0.12], [X0, Y1, 0.16], M.verde);
+  solidos.push([6.10, Y0, XW, Y1]);
+  placa([["Descont'", "#0B3F86"], ["Saúde", "#7DB33A"]], 1.2, 0.2, [X0 - 0.02, 3.05, 0.62], -Math.PI / 2);
+  monitor(6.62, 1.85, OLHA["+X"], 0.80); monitor(6.62, 3.10, OLHA["+X"]);
+  cadeiraGiratoria(7.42, 1.85, "-X", M.est_azul); cadeiraGiratoria(7.42, 3.10, "-X", M.est_azul);
+  BX([LARG - 0.03, 1.20, 0], [LARG, 4.00, 3.00], M.azul);
+  BX([LARG - 0.035, 1.20, 2.12], [LARG - 0.03, 4.00, 2.16], M.verde);
+  placa([["Descont'", "#FFFFFF"], ["Saúde", "#8CC63F"]], 2.1, 0.42, [LARG - 0.04, 2.80, 2.50], -Math.PI / 2);
+  logo([LARG - 0.045, 1.55, 2.55], 1.0, "X");
+  for (const yp of [1.85, 2.60, 3.35]) {                         // pendentes globo
+    CY([6.32, yp, (2.55 + PE) / 2], 0.004, PE - 2.55, M.preto); CY([6.32, yp, 2.56], 0.15, 0.02, M.preto);
+    SP([6.32, yp, 2.42], 0.12, M.led);
+  }
+}
+// ---- Espera ----
+longarina(1.65, 2.65, "+X", 3, M.est_turq); longarina(1.65, 4.35, "+X", 3, M.est_turq);
+poltrona(0.72, 0.85, "+X"); poltrona(2.38, 0.85, "-X");
+BX([1.25, 0.60, 0], [1.85, 1.10, 0.40], M.laca, cena, true);
+BX([0.18, 6.18, 0], [0.52, 6.52, 1.05], M.laca, cena, true); CY([0.35, 6.35, 1.22], 0.13, 0.34, M.vidro);
+BX([LX0 - 0.04, 6.02, 1.55], [LX0, 6.99, 2.10], M.preto); BX([LX0 - 0.045, 6.05, 1.58], [LX0 - 0.04, 6.96, 2.07], M.tela);
+planta(7.45, 0.55); planta(0.40, 7.55);
+// ---- Lavabo ----
+{
+  const g = grupo(7.55, 6.55, OLHA["-X"]);
+  CY([0, 0.05, 0.20], 0.19, 0.40, M.louca, g); B([0, -0.22, 0.57], [0.40, 0.16, 0.34], M.louca, g); B([0, 0.05, 0.415], [0.36, 0.44, 0.03], M.louca, g);
+  solido(g); lavatorio(6.80, 6.77, "-Y");
+}
+// ---- Atendimento de vendas (2 estações) ----
+for (const cy of [4.45, 6.35]) {
+  const cx = 5.25, rot = mesa(cx, cy, "-X", 1.20, 0.65);
+  notebook(...l2w(cx, cy, rot, 0.25, -0.12), rot);
+  cadeiraGiratoria(...l2w(cx, cy, rot, 0, 0.62), "-X", M.est_azul);
+  for (const dx of [-0.30, 0.30]) cadeiraFixa(...l2w(cx, cy, rot, dx, -0.65), "+X", M.est_turq);
+}
+// ---- Consultórios 01 e 02 ----
+for (const [x0, x1] of [[SX0, DX0], [DX1, SX1]]) {
+  const xm = (x0 + x1) / 2, cx = xm + 0.15, rot = mesa(cx, 9.60, "-Y", 1.20, 0.60);
+  monitor(...l2w(cx, 9.60, rot, -0.30, -0.15), rot);
+  cadeiraGiratoria(cx, 10.22, "-Y", M.est_azul);
+  cadeiraFixa(cx - 0.30, 8.98, "+Y", M.est_turq); cadeiraFixa(cx + 0.32, 8.98, "+Y", M.est_turq);
+  maca(xm, SY1 - 0.45); escadinha(xm + 0.55, 11.03); mocho(x0 + 0.45, 10.95);
+  lavatorio(x0 + 0.24, 10.40, "+X");
+}
+
+// ======================================================================
+// 7. ILUMINAÇÃO
+// ======================================================================
+cena.add(new THREE.HemisphereLight(0xFFFFFF, 0xC8CED2, 0.62));
+cena.add(new THREE.AmbientLight(0xFFF6EC, 0.18));
+const sol = new THREE.DirectionalLight(0xFFF2DD, 0.55); sol.position.copy(V(4, -6, 10)); sol.target.position.copy(V(4, 4, 0));
+cena.add(sol, sol.target);
+[[2.4, 2.2], [5.4, 3.0], [3.4, 7.0], [2.52, 10.0], [5.10, 10.0]].forEach(([x, y]) => {
+  const p = new THREE.PointLight(0xFFF1E0, 0.32, 7, 2); p.position.copy(V(x, y, 3.4)); cena.add(p);
+});
+[[2.2, 1.2], [5.6, 1.2], [2.2, 3.2], [5.6, 3.2], [5.6, 5.3], [2.2, 7.0], [5.6, 7.0]]
+  .forEach(([x, y]) => BX([x - 0.75, y - 0.03, PE - 0.015], [x + 0.75, y + 0.03, PE - 0.001], M.led, forro));
+[(SX0 + DX0) / 2, (DX1 + SX1) / 2].forEach(xm => [9.4, 10.9].forEach(y =>
+  BX([xm - 0.6, y - 0.03, PE - 0.015], [xm + 0.6, y + 0.03, PE - 0.001], M.led, forro)));
+
+// ======================================================================
+// 8. CÂMERA WALKTHROUGH + NAVEGAÇÃO (teclado, mouse e toque)
+// ======================================================================
+const canvas = document.getElementById("cena");
+const render = new THREE.WebGLRenderer({ canvas, antialias: true });
+render.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+// Lente 24 mm em sensor 36x24 -> FOV vertical ~53°
+const FOV24 = 2 * Math.atan(12 / 24) * 180 / Math.PI;
+const cam = new THREE.PerspectiveCamera(FOV24, 1, 0.05, 200);
+cam.rotation.order = "YXZ";
+const camPlanta = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+camPlanta.position.copy(V(LARG / 2, 5.4, 30)); camPlanta.lookAt(V(LARG / 2, 5.4, 0));
+
+const OLHO = 1.60, RAIO = 0.22;
+const est = { x: 3.95, y: 0.55, yaw: 0, pitch: 0, planta: false, px: LARG / 2, py: 5.6 };
+
+const VISTAS = [
+  ["Entrada", 3.95, 0.55, 0],
+  ["Recepção", 4.30, 2.60, -Math.PI / 2],
+  ["Espera", 3.30, 3.40, Math.PI / 2 + 0.25],
+  ["Vendas", 3.50, 5.40, -Math.PI / 2 - 0.15],
+  ["Consultório 01", 1.85, 8.45, -0.35],
+  ["Consultório 02", 4.40, 8.45, -0.35],
+  ["Vitrine", 4.0, 7.2, Math.PI],
+  ["Planta", null],
+];
+const barra = document.getElementById("vistas");
+VISTAS.forEach(([nome, x, y, yaw]) => {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = nome; b.id = "vista-" + nome.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  b.addEventListener("click", () => {
+    if (x === null) { definirPlanta(!est.planta); return; }
+    definirPlanta(false); Object.assign(est, { x, y, yaw, pitch: -0.05 });
+  });
+  barra.appendChild(b);
+});
+function definirPlanta(on) {
+  est.planta = on;
+  forro.visible = on ? false : btnForro.getAttribute("aria-pressed") === "true";
+  document.getElementById("vista-planta").setAttribute("aria-pressed", on);
+  redimensionar();
+}
+const btnForro = document.getElementById("btnForro");
+btnForro.addEventListener("click", () => {
+  const on = btnForro.getAttribute("aria-pressed") !== "true";
+  btnForro.setAttribute("aria-pressed", on); if (!est.planta) forro.visible = on;
+});
+const btnAjuda = document.getElementById("btnAjuda"), ajuda = document.getElementById("ajuda");
+btnAjuda.addEventListener("click", () => {
+  const on = btnAjuda.getAttribute("aria-pressed") !== "true";
+  btnAjuda.setAttribute("aria-pressed", on); ajuda.hidden = !on;
+});
+
+function colide(x, y) {
+  for (const [a, b, c, d] of solidos) if (x > a - RAIO && x < c + RAIO && y > b - RAIO && y < d + RAIO) return true;
+  return x < -2.8 || x > LARG + 2.8 || y < -3.8 || y > SY1;
+}
+function mover(dx, dy) {
+  if (!colide(est.x + dx, est.y)) est.x += dx;
+  if (!colide(est.x, est.y + dy)) est.y += dy;
+}
+
+// Teclado
+const teclas = new Set();
+addEventListener("keydown", e => { teclas.add(e.code); if (e.code.startsWith("Arrow")) e.preventDefault(); });
+addEventListener("keyup", e => teclas.delete(e.code));
+addEventListener("blur", () => teclas.clear());
+
+// Ponteiro: mouse = arrastar para olhar; toque = joystick (esquerda) + olhar (direita)
+const joy = document.getElementById("joy"), joyPino = joy.firstElementChild;
+const toques = new Map(); let joyVec = [0, 0];
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId); canvas.focus();
+  const toque = e.pointerType !== "mouse";
+  if (toque) document.body.classList.add("toque");
+  const papel = toque && e.clientX < innerWidth / 2 && !est.planta ? "andar" : "olhar";
+  toques.set(e.pointerId, { papel, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+  if (papel === "andar") { joy.hidden = false; joy.style.left = e.clientX + "px"; joy.style.top = e.clientY + "px"; }
+});
+canvas.addEventListener("pointermove", e => {
+  const t = toques.get(e.pointerId); if (!t) return;
+  if (t.papel === "olhar") {
+    const k = e.pointerType === "mouse" ? 0.0042 : 0.0065;
+    if (est.planta) { const k2 = zoomPlanta / canvas.clientHeight; est.px -= (e.clientX - t.x) * k2; est.py += (e.clientY - t.y) * k2; }
+    else { est.yaw -= (e.clientX - t.x) * k; est.pitch = Math.max(-1.3, Math.min(1.3, est.pitch - (e.clientY - t.y) * k)); }
+  } else {
+    let dx = e.clientX - t.x0, dy = e.clientY - t.y0; const d = Math.hypot(dx, dy), max = 50;
+    if (d > max) { dx *= max / d; dy *= max / d; }
+    joyVec = [dx / max, dy / max]; joyPino.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+  t.x = e.clientX; t.y = e.clientY;
+});
+const soltar = e => {
+  const t = toques.get(e.pointerId); toques.delete(e.pointerId);
+  if (t && t.papel === "andar") { joy.hidden = true; joyVec = [0, 0]; joyPino.style.transform = ""; }
+};
+canvas.addEventListener("pointerup", soltar); canvas.addEventListener("pointercancel", soltar);
+canvas.addEventListener("wheel", e => { if (est.planta) { zoomPlanta = Math.max(6, Math.min(30, zoomPlanta + e.deltaY * 0.01)); redimensionar(); e.preventDefault(); } }, { passive: false });
+
+let zoomPlanta = 14;
+function redimensionar() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  render.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+  const a = w / h, z = zoomPlanta;
+  if (a > 1) Object.assign(camPlanta, { left: -z * a / 2, right: z * a / 2, top: z / 2, bottom: -z / 2 });
+  else Object.assign(camPlanta, { left: -z / 2, right: z / 2, top: z / a / 2, bottom: -z / a / 2 });
+  camPlanta.updateProjectionMatrix();
+}
+addEventListener("resize", redimensionar);
+
+// Indicador de ambiente
+const zonaEl = document.getElementById("zona");
+function zona(x, y) {
+  if (y < -0.1) return ["Calçada", "fachada Descont'Saúde"];
+  if (y > SY0 && x > SX0 && x < DX0) return ["Consultório 01", "≈ 9,8 m² · maca, mesa e lavatório"];
+  if (y > SY0 && x > DX1 && x < SX1) return ["Consultório 02", "≈ 10,0 m² · maca, mesa e lavatório"];
+  if (x > LX0 && y > LY0 && y < LY1) return ["Lavabo", "existente"];
+  if (x > 5.6 && y < 4.0) return ["Recepção", "balcão com trecho acessível h = 0,80 m"];
+  if (x > 4.3 && y >= 3.8 && y < 7.2) return ["Atendimento de vendas", "2 estações"];
+  if (x < 3.0 && y < 5.3) return ["Espera", "8 lugares + bebedouro"];
+  return ["Hall / circulação", "58,18 m²"];
+}
+let zonaAtual = "";
+
+// Laço principal
+let t0 = performance.now();
+function quadro(t) {
+  const dt = Math.min(0.05, (t - t0) / 1000); t0 = t;
+  if (!est.planta) {
+    let f = 0, s = 0, giro = 0;
+    if (teclas.has("KeyW") || teclas.has("ArrowUp")) f += 1;
+    if (teclas.has("KeyS") || teclas.has("ArrowDown")) f -= 1;
+    if (teclas.has("KeyA")) s -= 1;
+    if (teclas.has("KeyD")) s += 1;
+    if (teclas.has("ArrowLeft")) giro += 1;
+    if (teclas.has("ArrowRight")) giro -= 1;
+    est.yaw += giro * 1.6 * dt;
+    f -= joyVec[1]; s += joyVec[0];
+    const vel = (teclas.has("ShiftLeft") || teclas.has("ShiftRight") ? 3.2 : 1.4) * dt;
+    const fx = -Math.sin(est.yaw), fy = Math.cos(est.yaw), rx = Math.cos(est.yaw), ry = Math.sin(est.yaw);
+    const n = Math.hypot(f, s); if (n > 1) { f /= n; s /= n; }
+    mover((fx * f + rx * s) * vel, (fy * f + ry * s) * vel);
+    cam.position.copy(V(est.x, est.y, OLHO));
+    cam.rotation.set(est.pitch, est.yaw, 0);
+    render.render(cena, cam);
+  } else {
+    camPlanta.position.copy(V(est.px, est.py, 30)); camPlanta.up.set(0, 0, -1); camPlanta.lookAt(V(est.px, est.py, 0));
+    render.render(cena, camPlanta);
+  }
+  const [nome, info] = est.planta ? ["Planta", "arraste para mover · role para zoom"] : zona(est.x, est.y);
+  if (nome + info !== zonaAtual) { zonaAtual = nome + info; zonaEl.innerHTML = `<strong>${nome}</strong> · ${info}`; }
+  requestAnimationFrame(quadro);
+}
+redimensionar();
+document.getElementById("carregando").hidden = true;
+if (matchMedia("(pointer: coarse)").matches) document.body.classList.add("toque");
+if (innerWidth < 520) { ajuda.hidden = true; btnAjuda.setAttribute("aria-pressed", "false"); }
+requestAnimationFrame(quadro);
+})();
+</script>
